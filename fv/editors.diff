@@ -1,0 +1,261 @@
+--- a/packages/fv/src/editors.pas	2026-11-21 20:49:19.989416069 -0700
++++ b/packages/fv/src/editors.pas	2026-11-21 22:11:19.075270274 -0700
+@@ -960,30 +960,73 @@
+                                  Helpers
+ ****************************************************************************}
+ 
++{ edit16: CountLines and GetLimits in assembler.  The Pascal loops took  }
++{ about 15 instructions a byte: 3 seconds on an XT to count the lines   }
++{ of a 60 KB file, for Ctrl+End, Ctrl+Home or loading it.  The results  }
++{ are the same: a CR LF or LF CR pair is one line break, and lim.x is   }
++{ the longest line in bytes.  (The Pascal GetLimits also went past the  }
++{ end of Buf when it ended in such a pair.)                             }
++
++{ The line breaks in Count bytes at Buf; the longest line in Max. }
++function ScanLines(var Buf; Count: sw_Word; var Max: sw_Word): sw_Word; assembler;
++asm
++  push ds
++  push si
++  push di
++  mov cx, Count
++  xor bx, bx            { the current line's length }
++  xor dx, dx            { line breaks }
++  xor di, di            { the longest line }
++  jcxz @done
++  lds si, Buf
++  cld
++@next:                  { most bytes: one compare }
++  lodsb
++  cmp al, 13
++  jbe @low
++  inc bx
++  loop @next
++  jmp @done
++@low:
++  je @brk
++  cmp al, 10
++  je @brk
++  inc bx
++  loop @next
++  jmp @done
++@brk:
++  dec cx
++  cmp bx, di
++  jbe @nomax
++  mov di, bx
++@nomax:
++  xor bx, bx
++  inc dx
++  jcxz @done
++  mov ah, [si]
++  add ah, al
++  cmp ah, 23            { CR LF or LF CR }
++  jne @next
++  inc si
++  dec cx
++  jcxz @done
++  jmp @next
++@done:
++  mov ax, di
++  les di, Max
++  mov es:[di], ax
++  mov ax, dx
++  pop di
++  pop si
++  pop ds
++end;
++
++
+ function CountLines(var Buf; Count: sw_Word): sw_Integer;
+ var
+-  p : pchar;
+-  lines : sw_word;
++  Max : sw_Word;
+ begin
+-  p:=pchar(@buf);
+-  lines:=0;
+-  while (count>0) do
+-   begin
+-     if p^ in [#10,#13] then
+-      begin
+-        inc(lines);
+-        if ord((p+1)^)+ord(p^)=23 then
+-         begin
+-           inc(p);
+-           dec(count);
+-           if count=0 then
+-            break;
+-         end;
+-      end;
+-     inc(p);
+-     dec(count);
+-   end;
+-  CountLines:=Lines;
++  CountLines:=ScanLines(Buf,Count,Max);
+ end;
+ 
+ 
+@@ -991,32 +1034,10 @@
+ { Get the limits needed for Buf, its an extended version of countlines (lim.y),
+   which also gets the maximum line length in lim.x }
+ var
+-  p : pchar;
+-  len : sw_word;
++  Max : sw_Word;
+ begin
+-  lim.x:=0;
+-  lim.y:=0;
+-  len:=0;
+-  p:=pchar(@buf);
+-  while (count>0) do
+-   begin
+-     if p^ in [#10,#13] then
+-      begin
+-        if len>lim.x then
+-         lim.x:=len;
+-        inc(lim.y);
+-        if ord((p+1)^)+ord(p^)=23 then
+-         begin
+-           inc(p);
+-           dec(count);
+-         end;
+-        len:=0;
+-      end
+-     else
+-      inc(len);
+-     inc(p);
+-     dec(count);
+-   end;
++  lim.y:=ScanLines(Buf,Count,Max);
++  lim.x:=Max;
+ end;
+ 
+ 
+@@ -1865,12 +1886,48 @@
+ VAR
+   Color : Word;
+   B     : array[0..MaxLineLength - 1] of Sw_Word;
++  P, S  : Sw_Word;
++  X, SX : Sw_Integer;
+ begin
+   Color := GetColor ($0201);
+   while Count > 0 do
+   begin
+-    FormatLine (B, LinePtr, Delta.X + Size.X, Color);
+-    WriteBuf (0, Y, Size.X, 1, B[Delta.X]);
++    if Delta.X + Size.X <= MaxLineLength then
++    begin
++      FormatLine (B, LinePtr, Delta.X + Size.X, Color);
++      WriteBuf (0, Y, Size.X, 1, B[Delta.X]);
++    end
++    else
++    begin
++      { edit16: scrolled further right than B holds, which overran B.  }
++      { Format from the last character at or before column Delta.X    }
++      { that starts on a tab stop (so tabs line up), not from column 0. }
++      P := LinePtr;
++      S := LinePtr;
++      X := 0;
++      SX := 0;
++      while (X <= Delta.X) and (P < BufLen) and not (BufChar (P) in [#10, #13]) do
++      begin
++        if X mod TabSize = 0 then
++        begin
++          S := P;
++          SX := X;
++        end;
++        if BufChar (P) = #9 then
++          X := (X div TabSize + 1) * TabSize
++        else
++          Inc (X);
++        Inc (P);
++      end;
++      if X <= Delta.X then
++      begin
++        { the line ends before the window's first column }
++        S := P;
++        SX := Delta.X;
++      end;
++      FormatLine (B, S, Delta.X - SX + Size.X, Color);
++      WriteBuf (0, Y, Size.X, 1, B[Delta.X - SX]);
++    end;
+     LinePtr := NextLine (LinePtr);
+     Inc (Y);
+     Dec (Count);
+@@ -1906,17 +1963,12 @@
+   attr   : Word;
+ 
+   procedure FillSpace(i:Sw_Word);
+-  var
+-    w : word;
+   begin
+     inc(OutCnt,i);
+-    w:=32 or attr;
+-    while (i>0) do
+-     begin
+-       OutPtr^:=w;
+-       inc(OutPtr);
+-       dec(i);
+-     end;
++    { edit16: the RTL's FillWord (rep stosw) instead of a loop of far   }
++    { stores, which was a tenth of the time of drawing a window on an XT }
++    FillWord(OutPtr^,i,32 or attr);
++    inc(OutPtr,i);
+   end;
+ 
+   function FormatUntil(endpos:Sw_word):boolean;
+@@ -2376,7 +2428,7 @@
+       begin
+         if pc^ in [#10,#13] then
+          begin
+-           LineEnd:=pc-pchar(Buffer);
++           LineEnd:=Sw_Word(Ofs(pc^)-Ofs(Buffer^));
+            exit;
+          end;
+         inc(pc);
+@@ -2392,13 +2444,13 @@
+    begin
+      if pc^ in [#10,#13] then
+       begin
+-        LineEnd:=pc-(pchar(Buffer)+Gaplen);
++        LineEnd:=Sw_Word(Ofs(pc^)-Ofs(Buffer^)-GapLen);
+         exit;
+       end;
+      inc(pc);
+      dec(i);
+    end;
+-  LineEnd:=pc-(pchar(Buffer)+Gaplen);
++  LineEnd:=Sw_Word(Ofs(pc^)-Ofs(Buffer^)-GapLen);
+ end; { TEditor.LineEnd }
+ 
+ 
+@@ -2472,7 +2524,7 @@
+       end;
+    end;
+   oc:=pc^;
+-  LineStart:=pc-start+1;
++  LineStart:=Sw_Word(Ofs(pc^)-Ofs(start^)+1);
+ end; { TEditor.LineStart }
+ 
+ 
+@@ -2772,6 +2824,10 @@
+   P : Sw_Word;           { Position of pointer at any given moment.     }
+   S : Sw_Word;           { Start of a line.                             }
+ begin
++  { edit16: only word wrap needs this; otherwise it deletes spaces the  }
++  { user typed, on every cursor move in a modified file.               }
++  if not Word_Wrap then
++    Exit;
+   C := CurPtr;
+   E := LineEnd (CurPtr);
+   P := E;
+@@ -3519,7 +3575,8 @@
+ VAR
+   Length : Sw_Word;
+   FSize : Longint;
+-  FRead : Sw_Integer;
++  FRead : Sw_Word;   { edit16: was Sw_Integer, so on 16-bit a file over }
++                     { 32,767 bytes failed with a read error.           }
+   F : File;
+ begin
+   LoadFile := False;
