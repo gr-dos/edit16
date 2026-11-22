@@ -438,7 +438,6 @@ constructor TEditApp.Init;
 var
   R : TRect;
   I : Integer;
-  Opened : Boolean;
 begin
   inherited Init;
   LineBreak := #13#10;
@@ -447,7 +446,6 @@ begin
   R.Assign (0, 0, 1, 1);
   Clipboard := New (PEdEditor, Init (R, nil, nil, ''));
   Clipboard^.CanUndo := False;
-  Opened := False;
   for I := 1 to ArgCount do
     if (Pos ('*', Args[I]) > 0) or (Pos ('?', Args[I]) > 0) then
       OpenWithDialog (Args[I])
