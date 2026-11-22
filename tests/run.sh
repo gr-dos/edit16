@@ -57,6 +57,12 @@ printf 'a\tb\r\n  trailing  \r\n' > tabs.txt
 cp tabs.txt tabs2.txt
 printf 'unix\nline\n' > lf.txt
 printf 'hello world\r\n    indented\r\n' > misc.txt
+printf 'catXcatYcat\r\n' > fv58.txt
+printf 'aaXaaYaa\r\n' > fv59.txt
+printf 'aaXaaYaa\r\n' > fv63.txt
+printf 'ab ab\r\nab ab\r\n' > fv64.txt
+printf 'ab ab\r\nab ab\r\n' > fv65.txt
+printf 'aaXaaYaa\r\n' > fv66.txt
 printf 'hello\r\n' > rof.txt
 awk 'BEGIN { for (i = 1; i <= 60; i++)
                printf "word1 word2 word3 word4 %02d\r\n", i }' > ws.txt
@@ -237,6 +243,24 @@ EOS
 keys 57 <<'EOS'
 dump End "!" Alt+F S dump Enter Alt+F X N
 EOS
+keys 58 <<'EOS'
+Right Alt+S C "cat" Tab "c" Enter dump C dump C dump C dump Enter Alt+F S Alt+F X
+EOS
+keys 59 <<'EOS'
+Right Alt+S C "aa" Tab Enter dump C dump C dump C dump Enter Alt+F S Alt+F X
+EOS
+keys 63 <<'EOS'
+Right Alt+S C "aa" Tab "aaaa" Enter dump C dump C dump C dump Enter Alt+F S Alt+F X
+EOS
+keys 64 <<'EOS'
+Down Alt+S C "ab" Tab Enter dump C dump C dump C dump C dump Enter Alt+F S Alt+F X
+EOS
+keys 65 <<'EOS'
+Down Alt+S C "ab" Tab "abab" Enter dump C dump S dump C dump C dump Enter Alt+F S Alt+F X
+EOS
+keys 66 <<'EOS'
+Right Alt+S C "aa" Tab Enter dump S dump S dump S dump Enter Alt+F S Alt+F X
+EOS
 keys 53 <<'EOS'
 Alt+F P dump Enter Down Shift+End Alt+F P Enter Alt+F X
 EOS
@@ -372,6 +396,18 @@ attrib +r rof.txt >nul
 edit --test-keys=k57.txt rof.txt >o57.txt
 call rc 57
 attrib -r rof.txt >nul
+edit --test-keys=k58.txt fv58.txt >o58.txt
+call rc 58
+edit --test-keys=k59.txt fv59.txt >o59.txt
+call rc 59
+edit --test-keys=k63.txt fv63.txt >o63.txt
+call rc 63
+edit --test-keys=k64.txt fv64.txt >o64.txt
+call rc 64
+edit --test-keys=k65.txt fv65.txt >o65.txt
+call rc 65
+edit --test-keys=k66.txt fv66.txt >o66.txt
+call rc 66
 EOS
 
 # dosbox MACHINE BATCH: run BATCH in a headless DOSBox-X; what is
@@ -804,6 +840,66 @@ shows 57 1 'hello'
 shows 57 2 'Cannot save'
 file rof.txt <<'EOS'
 hello\r\n
+EOS
+
+# Find and Verify round the end of the file: each match is offered once
+# (a prompt before each answer, then Change complete), the search ends,
+# and the bytes are right
+# shorter; the cursor in the first match
+rc 58 0
+shows 58 1 'Change this occurrence?'
+shows 58 2 'Change this occurrence?'
+shows 58 3 'Change this occurrence?'
+shows 58 4 'Change complete.'
+file fv58.txt <<'EOS'
+cXcYc\r\n
+EOS
+# empty; the cursor in the first match
+rc 59 0
+shows 59 1 'Change this occurrence?'
+shows 59 2 'Change this occurrence?'
+shows 59 3 'Change this occurrence?'
+shows 59 4 'Change complete.'
+file fv59.txt <<'EOS'
+XY\r\n
+EOS
+# longer; the cursor in the first match
+rc 63 0
+shows 63 1 'Change this occurrence?'
+shows 63 2 'Change this occurrence?'
+shows 63 3 'Change this occurrence?'
+shows 63 4 'Change complete.'
+file fv63.txt <<'EOS'
+aaaaXaaaaYaaaa\r\n
+EOS
+# empty; two matches before the cursor
+rc 64 0
+shows 64 1 'Change this occurrence?'
+shows 64 2 'Change this occurrence?'
+shows 64 3 'Change this occurrence?'
+shows 64 4 'Change this occurrence?'
+shows 64 5 'Change complete.'
+file fv64.txt <<'EOS'
+ \r\n \r\n
+EOS
+# longer, one skipped
+rc 65 0
+shows 65 1 'Change this occurrence?'
+shows 65 2 'Change this occurrence?'
+shows 65 3 'Change this occurrence?'
+shows 65 4 'Change this occurrence?'
+shows 65 5 'Change complete.'
+file fv65.txt <<'EOS'
+abab abab\r\nabab ab\r\n
+EOS
+# all skipped
+rc 66 0
+shows 66 1 'Change this occurrence?'
+shows 66 2 'Change this occurrence?'
+shows 66 3 'Change this occurrence?'
+shows 66 4 'Change complete.'
+file fv66.txt <<'EOS'
+aaXaaYaa\r\n
 EOS
 
 # too little memory: a message, not a blank screen (LOADFIX holds 330 KB)

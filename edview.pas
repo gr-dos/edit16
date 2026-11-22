@@ -919,10 +919,10 @@ end;
 procedure TEdEditor.DoChange;
 var
   Rec     : TReplaceDialogRec;
-  At, P, Start : Sw_Word;
+  At, P, Bound : Sw_Word;
   LF, LR  : Sw_Word;
   Count   : Word;
-  Found, Wrapped, Verify, Stop : Boolean;
+  Found, Wrapped, Verify, Stop, Finished : Boolean;
   Where   : TPoint;
 begin
   Rec.Find := WordAtCursor;
@@ -961,11 +961,16 @@ begin
   else
     begin
       { Find and Verify: from the cursor to the end, then from the top
-        back to where it started. }
-      Start := CurPtr;
+        to the cursor.  On the way round, a match must start before
+        Bound, where the cursor was (so one the cursor was in is found,
+        as Find finds it), and Bound moves with the text changed before
+        it.  A match is never offered twice: one changed or skipped on
+        the first pass starts at or after Bound. }
+      Bound := CurPtr;
       P := CurPtr;
       Wrapped := False;
       Stop := False;
+      Finished := False;
       repeat
         if not Wrapped then
           begin
@@ -976,7 +981,9 @@ begin
                 Continue;
               end;
           end
-        else if not FindIn (FindStr, FindOpts, P, Start, At) then
+        else if (P >= Bound) or
+                not FindIn (FindStr, FindOpts, P,
+                            Min (BufLen, Bound + LF - 1), At) then
           Break;
         Found := True;
         SetSelect (At, At + LF, False);
@@ -988,10 +995,19 @@ begin
           cmYes:
             begin
               if not InsertText (@ReplaceStr[1], LR, False) then
-                Stop := True;
-              Inc (Count);
-              if Wrapped then
-                Start := Start + LR - LF;
+                Stop := True
+              else
+                begin
+                  Inc (Count);
+                  if Wrapped then
+                    { At < Bound, so At + LF >= Bound only for the match
+                      the cursor was in, the last there can be.  Else
+                      Bound - LF > At >= 0: no unsigned underflow. }
+                    if At + LF >= Bound then
+                      Finished := True
+                    else
+                      Bound := (Bound - LF) + LR;
+                end;
               P := At + LR;
             end;
           cmNo:
@@ -999,7 +1015,7 @@ begin
         else
           Stop := True;
         end;
-      until Stop;
+      until Stop or Finished;
       TrackCursor (not CursorVisible);
       if Stop then
         Exit;
