@@ -1,0 +1,25 @@
+#!/bin/sh
+#
+# Check that fv/editors.pas is exactly FreeVision's editors.pas from the
+# Free Pascal 3.2.2 release (tag release_3_2_2) with fv/editors.diff
+# applied, and that fv/platform.inc is that release's file unchanged.
+# Needs curl and patch; fetches the two upstream files.
+#
+# usage: scripts/check-fv
+
+set -eu
+
+top=$(cd "$(dirname "$0")/.." && pwd)
+base=https://gitlab.com/freepascal.org/fpc/source/-/raw/release_3_2_2/packages/fv/src
+editors_sha256=d975b352453c7fce2e14f63629a0c9177e543bd61240230340e2a489c905fea7
+
+work=$(mktemp -d "${TMPDIR:-/tmp}/checkfv.XXXXXX")
+trap 'rm -rf "$work"' EXIT
+
+curl -fsSL -o "$work/editors.pas" "$base/editors.pas"
+curl -fsSL -o "$work/platform.inc" "$base/platform.inc"
+echo "$editors_sha256  $work/editors.pas" | sha256sum -c --quiet
+cmp "$work/platform.inc" "$top/fv/platform.inc"
+patch -s -p4 -d "$work" < "$top/fv/editors.diff"
+cmp "$work/editors.pas" "$top/fv/editors.pas"
+echo "fv/editors.pas = release_3_2_2 + fv/editors.diff"
